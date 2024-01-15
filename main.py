@@ -47,12 +47,9 @@ def job_submit(script,args):
     print('#SBATCH -t 29-12:00',file=out)            
     print('#SBATCH -o '+temp_path+'/job_%A_%a.log',file=out)       
     print('#SBATCH -e '+temp_path+'/job_%A_%a.log',file=out)      
-    print('#SBATCH --exclude=inhccne0801',file=out)
     #you need modify these to set your own env
     print('source /home/qiujiaju/.bashrc',file=out) 
     print('conda activate tf',file=out)
-    print('export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/qiujiaju/.local/lib/python3.9/site-packages/tensorrt',file=out)
-    print('export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/data/gcbds/users/qiujiaju/conda/envs/tf/lib',file=out)
     
     if args['scenario']=='use_case':
         if args['run_model']=='False':

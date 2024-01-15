@@ -42,7 +42,6 @@ import logging
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
 tf.config.run_functions_eagerly(True)
 
-#python3.9 /data/gcbds/resources/UKB/studies/risk_modeling/tensorflow/vadesc-main/run_benchmark.py 0.01 0.05 200 0 0 2
 disc = "Running model on simultation data"
 usage = "usage: %prog [options]"
 parser = OptionParser(usage=usage,description = disc)
