@@ -47,17 +47,21 @@ def job_submit(script,args):
     print('#SBATCH -t 29-12:00',file=out)            
     print('#SBATCH -o '+temp_path+'/job_%A_%a.log',file=out)       
     print('#SBATCH -e '+temp_path+'/job_%A_%a.log',file=out)      
+
     #you need modify these to set your own env
     print('source /home/qiujiaju/.bashrc',file=out) 
     print('conda activate tf',file=out)
+    print('export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/qiujiaju/.local/lib/python3.9/site-packages/tensorrt',file=out)
+    print('export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/users/qiujiaju/conda/envs/tf/lib',file=out)
     
     if args['scenario']=='use_case':
         if args['run_model']=='False':
-            print('python3.9 '+script+' -c '+str(args['num_cluster'])+' -n '+str(args['exp_name'])+' -p '+str(args['work_path'])+' -t '+str(args['opt_typ'])+' -b '+str(args['benchmark'])+' -s '+str(args['save_model']),file=out)
+            print('python3.9 '+script+' -c '+str(args['num_cluster'])+' -n '+str(args['exp_name'])+' -p '+str(args['work_path'])+' -t '+str(args['opt_typ'])+' -b '+str(args['benchmark'])+' -s '+str(args['save_model'])+' -w '+str(args['whole']),file=out)
         elif args['run_model']=='True':
             print('python3.9 '+script+' -c '+str(args['num_cluster'])+' -n '+str(args['exp_name'])+' -p '+str(args['work_path'])+' -b '+str(args['benchmark']),file=out)
     else:
         print('python3.9 '+script+' -p '+str(args['work_path'])+' -d '+str(args['data_fil'])+' -e '+str(args['evaluation'])+' -s '+str(args['save_model']),file=out) 
+
     
     out.close()
     output = subprocess.check_output(['sbatch',tmp_script])
@@ -132,8 +136,19 @@ if run_model=='True':
         configs['save_model']='False'
         job_submit(str(os.path.join(script_path,'scripts/run-simulation.py')),configs)
     elif scenario=='use_case':
+        try:
+            params={}
+            for l in open(os.path.join(script_path,'data_use_cases/'+exp_name+'/params.txt')):
+                l=l.rstrip()
+                t=l.split('\t')
+                params[t[0]]=t[1]
+            num_cluster=params['num_cluster']
+        except:
+            print('where is your optimized hyperparameters?')
+            sys.exit()
+        
         configs={}
-        configs['num_cluster']=number_components
+        configs['num_cluster']=num_cluster
         configs['scenario']=scenario
         configs['exp_name']=exp_name
         configs['run_model']=run_model
@@ -158,9 +173,9 @@ if scenario=='use_case' and number_trials!=0:
     for cls in range(2,number_components+1):
         print('submit jobs for testing '+str(cls)+' GMM components',flush=True)
         for x in tqdm(range(number_trials)):
-            wait_for_jobs(20)
+            wait_for_jobs(5)
             configs={}
-            configs['num_cluster']=number_components
+            configs['num_cluster']=cls
             configs['exp_name']=exp_name
             configs['scenario']=scenario
             configs['opt_typ']=opt_typ
@@ -169,6 +184,7 @@ if scenario=='use_case' and number_trials!=0:
             configs['benchmark']=benchmark
             configs['save_model']='False'
             configs['run_model']='False'
+            configs['whole']='False'
             job_submit(str(os.path.join(script_path,'scripts/run-optuna.py')),configs)
 
     #wait until all job finished
@@ -214,21 +230,32 @@ if scenario=='use_case' and number_trials!=0:
 
     plt.scatter(trial_bic_merge[max_dist_index], custom_metrics_merge[max_dist_index], c='red', s=100, edgecolors='none')
     plt.tick_params(axis='both', labelsize=30)
-    output_file=os.path.join(save_path, 'hyperparameter_opt.tiff')
+    output_file=os.path.join(work_path, 'hyperparameter_opt.tiff')
     plt.savefig(output_file, dpi=100, bbox_inches='tight')
 
     num_cluster,trial_idx = label_merge[dist.index(max(dist))].split('@')
 
     study_ori = optuna.load_study(study_name='train_num_cluster'+str(num_cluster), storage='sqlite:///'+work_path+'/train.db')
-    params = study_ori.trials[trial_idx].params
+    params = study_ori.trials[int(trial_idx)].params
+    params['num_cluster']=num_cluster
     outf=open(str(os.path.join(script_path,'data_use_cases/'+exp_name+'/params.txt')),'w')
     for k in params:
         print(k,params[k],sep='\t',file=outf)
     outf.close()
+
+
+
+try:
+    params={}
+    for l in open(str(os.path.join(script_path,'data_use_cases/'+exp_name+'/params.txt'))):
+        l=l.rstrip()
+        t=l.split('\t')
+        params[t[0]]=t[1]
+    num_cluster=params['num_cluster']
+except:
+    print('where is your optimized hyperparameters?')
+    sys.exit()
     
-
-
-
 print('Train the model',flush=True)
 if scenario=='simulation':
     configs={}
@@ -244,7 +271,7 @@ if scenario=='simulation':
         wait_for_jobs(1)
 elif scenario=='use_case':
     configs={}
-    configs['num_cluster']=number_components
+    configs['num_cluster']=num_cluster
     configs['scenario']=scenario
     configs['exp_name']=exp_name
     configs['opt_typ']=opt_typ
@@ -252,6 +279,9 @@ elif scenario=='use_case':
     configs['run_model']=run_model
     configs['benchmark']=benchmark
     configs['save_model']='True'
+    configs['whole']='False'
+    job_submit(str(os.path.join(script_path,'scripts/run-optuna.py')),configs)
+    configs['whole']='True'
     job_submit(str(os.path.join(script_path,'scripts/run-optuna.py')),configs)
     print('Wait until the training of use case model finished',flush=True)
     for x in tqdm(range(1)):
@@ -269,7 +299,7 @@ if scenario=='simulation':
     job_submit(str(os.path.join(script_path,'scripts/run-simulation.py')),configs)
 elif scenario=='use_case':
     configs={}
-    configs['num_cluster']=number_components
+    configs['num_cluster']=num_cluster
     configs['scenario']=scenario
     configs['exp_name']=exp_name
     configs['run_model']=run_model

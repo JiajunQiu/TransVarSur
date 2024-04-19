@@ -59,6 +59,7 @@ parser.add_option("-p", action="store", type="string", dest="work_path", help="t
 parser.add_option("-t", action="store", type="string", dest="opt_typ", help="chose optimizer RectifiedAdam or classic Adam",default='Adam')
 parser.add_option("-b", action="store", type="string", dest="benchmark", help="whether you run on a benchmark data, aka whether you know the labels. True or False",default='False')
 parser.add_option("-s", action="store", type="string", dest="save_model", help="whether you want to save model. True or False",default='False')
+parser.add_option("-w", action="store", type="string", dest="whole_data", help="whether you want to use with whole dataset or one fold in cross validation. True or False",default='False')
 
 options, args = parser.parse_args()
 num_clusters = options.num_clusters
@@ -67,6 +68,7 @@ work_path = options.work_path
 opt_typ = options.opt_typ
 benchmark = options.benchmark
 save_model = options.save_model
+whole= options.whole_data
 
 
 if not num_clusters or not exp_name or not work_path or not opt_typ or not benchmark or not save_model:
@@ -192,7 +194,7 @@ def data_concat(*data):
     output['eventtime']=output['eventtime'].astype(int)/(max(survt)+0.001)
     return output
 
-def train(cluster_nums,trial,fold,exp_name,work_path,opt_typ,benchmark,save_model):
+def train(cluster_nums,trial,fold,exp_name,work_path,opt_typ,benchmark,save_model,whole):
 
     tmp_path=os.path.join(temp_path, 'tr_script_'+str(num_clusters)+'_'+str(trial.number)+'@'+str(fold)+'.sh')
     
@@ -210,14 +212,14 @@ def train(cluster_nums,trial,fold,exp_name,work_path,opt_typ,benchmark,save_mode
     print('source /home/qiujiaju/.bashrc',file=out) 
     print('conda activate tf',file=out)
     print('export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/qiujiaju/.local/lib/python3.9/site-packages/tensorrt',file=out)
-    print('export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/data/gcbds/users/qiujiaju/conda/envs/tf/lib',file=out)
+    print('export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/users/qiujiaju/conda/envs/tf/lib',file=out)
     
-    if benchmark=='True' and save_model=='True':
-        print('python3.9 '+str(os.path.join(script_path,'scripts/train-model-benchmark.py'))+' -c '+str(cluster_nums) +' -l '+str(trial.number)+' -n '+str(exp_name)+' -p '+str(work_path)+' -t '+str(opt_typ),file=out)    
+    if benchmark=='True' and whole=='True':
+        print('python3.9 '+str(os.path.join(script_path,'scripts/run-optuna-all-benchmark.py'))+' -c '+str(cluster_nums) +' -l '+str(trial.number)+' -n '+str(exp_name)+' -p '+str(work_path)+' -t '+str(opt_typ),file=out)    
     elif benchmark=='True':
         print('python3.9 '+str(os.path.join(script_path,'scripts/run-optuna-fold-benchmark.py'))+' -c '+str(cluster_nums) +' -l '+str(trial.number)+' -f '+str(fold)+' -n '+str(exp_name)+' -p '+str(work_path)+' -t '+str(opt_typ)+' -s '+save_model,file=out)
-    elif save_model=='True':
-        print('python3.9 '+str(os.path.join(script_path,'scripts/train-model.py'))+' -c '+str(cluster_nums) +' -l '+str(trial.number)+' -n '+str(exp_name)+' -p '+str(work_path)+' -t '+str(opt_typ),file=out)
+    elif whole=='True':
+        print('python3.9 '+str(os.path.join(script_path,'scripts/run-optuna-all.py'))+' -c '+str(cluster_nums) +' -l '+str(trial.number)+' -n '+str(exp_name)+' -p '+str(work_path)+' -t '+str(opt_typ),file=out)
     else:
         print('python3.9 '+str(os.path.join(script_path,'scripts/run-optuna-fold.py'))+' -c '+str(cluster_nums) +' -l '+str(trial.number)+' -f '+str(fold)+' -n '+str(exp_name)+' -p '+str(work_path)+' -t '+str(opt_typ)+' -s '+save_model,file=out)
     out.close()
@@ -300,18 +302,18 @@ def objective_cv(trial):
         pickle.dump(configs,file=out)
         out.close()
         
-        if save_model=='True':  
+        if whole=='True':  
             steps=math.ceil((len(data_ori[int(fold[0])-1]['code1'])+len(data_ori[int(fold[1])-1]['code1'])+len(data_ori[int(fold[2])-1]['code1'])+len(data_ori[int(fold[3])-1]['code1'])+len(data_ori[int(fold[4])-1]['code1']))/batch_size)
             configs['training']['t_total'] = steps*epoch
             configs_path = Path(os.path.join(work_path,'config.pkl'))
             out=open(configs_path,'wb')
             pickle.dump(configs,file=out)
             out.close()            
-            job_id=train(num_clusters,trial,fold,exp_name,work_path,opt_typ,benchmark,save_model)
+            job_id=train(num_clusters,trial,fold,exp_name,work_path,opt_typ,benchmark,'True',whole)
             job_ids.append(job_id)
             break
         
-        job_id=train(num_clusters,trial,fold,exp_name,work_path,opt_typ,benchmark,save_model)
+        job_id=train(num_clusters,trial,fold,exp_name,work_path,opt_typ,benchmark,save_model,whole)
         job_ids.append(job_id)
         
         
@@ -328,7 +330,7 @@ def objective_cv(trial):
             except:
                 flag=False
 
-    if save_model:
+    if save_model=='True':
         return 0
 
     if benchmark=='True':
@@ -379,6 +381,7 @@ def objective_cv(trial):
         nlls = []
         bics=[]
 
+        print(glob.glob(os.path.join(temp_path,'tr_loss_'+str(num_clusters)+'_'+str(trial.number)+'@*txt')))
         for f in glob.glob(os.path.join(temp_path,'tr_loss_'+str(num_clusters)+'_'+str(trial.number)+'@*txt')):
             for l in open(f):
                 l=l.rstrip()

@@ -57,13 +57,14 @@ parser.add_option("-c", action="store", type="int", dest="num_clusters", help="m
 parser.add_option("-n", action="store", type="string", dest="exp_name", help="name of the experiment")
 parser.add_option("-p", action="store", type="string", dest="work_path", help="the path to save the outputs")
 parser.add_option("-b", action="store", type="string", dest="benchmark", help="whether you run on a benchmark data, aka whether you know the labels. True or False",default='False')
+parser.add_option("-w", action="store", type="string", dest="whole_data", help="whether you want to use with whole dataset or one fold in cross validation. True or False",default='False')
 
 options, args = parser.parse_args()
 num_clusters = options.num_clusters
 exp_name = options.exp_name
 work_path = options.work_path
 benchmark = options.benchmark
-
+whole= options.whole_data
 #script_path=os.path.dirname(os.path.realpath(__file__))
 
 
@@ -185,7 +186,8 @@ def define_model_and_opt(configs, t_total=-1):
 
         
 def eval():
-    outf1=open(os.path.join(work_path,'cluster_pids.txt'),'w')
+    if whole=='True':
+        outf1=open(os.path.join(work_path,'cluster_pids.txt'),'w')
     
     config_path = Path(os.path.join(script_path,'data/pre_trained_model/config_pretraining.yml'))
     with config_path.open(mode='r') as yamlfile:
@@ -236,9 +238,14 @@ def eval():
         gen_val = DataGen(gen_val, batch_size=batch_size,shuffle=False)
         
         model = define_model_and_opt(configs,t_total=len(gen_val)*configs['training']['epoch'])
-
-        model.load_weights(os.path.join(save_path, 'model_weights_overall'))
-
+        if whole=='True':
+            model.load_weights(os.path.join(save_path, 'model_weights_overall'))
+        elif whole=='False':
+            model.load_weights(os.path.join(save_path, 'model_weights_fold'+str(fold)))
+        else:
+            print('wrong')
+            sys.exit()
+            
         model.sample_surv = False
 
         rec, z_sample, p_z_c, p_c_z, risk_scores, lambdas, event_time = model.predict(gen_val)
@@ -275,32 +282,34 @@ def eval():
             accs.append(acc_v)
             nmis.append(nmi_v)
             aris.append(ari_v)
-            
-        for idx,patient in enumerate(cluster_pids[int(fold[fdx])-1]):
-#            print(patient,c_hat[idx],event_fold[idx],eventtime_fold[idx],' '.join([str(x) for x in z_samples[0][idx]]),file=outff)
-            print(patient,c_hat[idx],event_fold[idx],eventtime_fold[idx],file=outf1)
 
-    outf1.close()
-    outf2=open(os.path.join(work_path,'performance_on_test_set.txt'),'w')
-    print('metrics','mean','std',file=outf2)
-    print('CI',np.mean(cis),np.std(cis),file=outf2)
-    print('rae_nc',np.mean(rae_ncs),np.std(rae_ncs),file=outf2)
-    print('rae_c',np.mean(rae_cs),np.std(rae_cs),file=outf2)
-    if benchmark=='True':
-        print('NMI',np.mean(nmis),np.std(nmis),file=outf2)
-        print('ACC',np.mean(accs),np.std(accs),file=outf2)
-        print('ARI',np.mean(aris),np.std(aris),file=outf2)
-    outf2.close()
-    
-    c_hats =  np.concatenate(c_hats)
-    events = np.concatenate(events)
-    eventtimes = np.concatenate(eventtimes)
-    z_samples = np.vstack(z_samples)
-    
-    plot_group_kaplan_meier(t=eventtimes, d=events, c=c_hats,dir=work_path,experiment_name='pred_cv_'+exp_name)
-    plot_tsne_by_cluster(X=z_samples, c=c_hats, font_size=12, seed=42, dir=work_path, postfix='pred_tsne_cv_'+exp_name)
-    plot_umap_by_cluster(X=z_samples, c=c_hats, font_size=12, seed=42, dir=work_path, postfix='pred_umap_cv_'+exp_name)
-    
+        if whole=='True':
+            for idx,patient in enumerate(cluster_pids[int(fold[fdx])-1]):
+#            print(patient,c_hat[idx],event_fold[idx],eventtime_fold[idx],' '.join([str(x) for x in z_samples[0][idx]]),file=outff)
+                print(patient,c_hat[idx],event_fold[idx],eventtime_fold[idx],file=outf1)
+
+    if whole=='False':
+        outf2=open(os.path.join(work_path,'performance_on_test_set.txt'),'w')
+        print('metrics','mean','std',file=outf2)
+        print('CI',np.mean(cis),np.std(cis),file=outf2)
+        print('rae_nc',np.mean(rae_ncs),np.std(rae_ncs),file=outf2)
+        print('rae_c',np.mean(rae_cs),np.std(rae_cs),file=outf2)
+        if benchmark=='True':
+            print('NMI',np.mean(nmis),np.std(nmis),file=outf2)
+            print('ACC',np.mean(accs),np.std(accs),file=outf2)
+            print('ARI',np.mean(aris),np.std(aris),file=outf2)
+        outf2.close()
+    if whole=='True':
+        outf1.close()
+        c_hats =  np.concatenate(c_hats)
+        events = np.concatenate(events)
+        eventtimes = np.concatenate(eventtimes)
+        z_samples = np.vstack(z_samples)
+        
+        plot_group_kaplan_meier(t=eventtimes, d=events, c=c_hats,dir=work_path,experiment_name='pred_cv_'+exp_name)
+        plot_tsne_by_cluster(X=z_samples, c=c_hats, font_size=12, seed=42, dir=work_path, postfix='pred_tsne_cv_'+exp_name)
+        plot_umap_by_cluster(X=z_samples, c=c_hats, font_size=12, seed=42, dir=work_path, postfix='pred_umap_cv_'+exp_name)
+        
 
 
 out=open(os.path.join(data_path,'data.pkl'),'rb')
